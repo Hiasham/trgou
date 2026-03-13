@@ -1,0 +1,4 @@
+enum GameMode {
+  hotseat,
+  bot
+}
