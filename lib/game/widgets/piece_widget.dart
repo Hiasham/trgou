@@ -1,35 +1,55 @@
 import 'package:flutter/material.dart';
+import 'package:trgou/game/model/player.dart';
 
 class PieceWidget extends StatelessWidget {
+  final Player player;
+  final bool isTurnActive;
+  final bool showDebugLabel;
+  final int? pieceId;
+
   const PieceWidget({
-    super.key,
-    required this.isPlayerOne,
-    this.size = 32,
+    required this.player,
+    required this.isTurnActive,
+    this.showDebugLabel = false,
+    this.pieceId,
+    super.key
   });
-
-  final bool isPlayerOne;
-  final double size;
-
-  static const Color _playerOneColor = Color(0xFF2196F3); // blue
-  static const Color _playerTwoColor = Color(0xFFE53935); // red
 
   @override
   Widget build(BuildContext context) {
-    final color = isPlayerOne ? _playerOneColor : _playerTwoColor;
+    final Color pieceColor = player == Player.playerOne
+        ? const Color.fromARGB(255, 126, 148, 134)
+        : const Color(0xFFE6A57E);
+
     return Container(
-      width: size,
-      height: size,
+      width: 22,
+      height: 22,
       decoration: BoxDecoration(
-        color: color,
         shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: color.withValues(alpha: 0.5),
-            blurRadius: size * 0.15,
-            offset: Offset(0, size * 0.05),
-          ),
-        ],
+        color: pieceColor,
+        boxShadow: isTurnActive
+            ? [
+                BoxShadow(
+                  color: pieceColor.withValues(alpha: 0.55),
+                  blurRadius: 14,
+                  spreadRadius: 2.6,
+                ),
+              ]
+            : null,
       ),
+      child: showDebugLabel && pieceId != null
+          ? Center(
+              child: Text(
+                '$pieceId',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: Colors.black87,
+                      fontSize: 8,
+                      fontWeight: FontWeight.w700,
+                    ),
+                textAlign: TextAlign.center,
+              ),
+            )
+          : null,
     );
   }
 }

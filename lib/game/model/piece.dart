@@ -1,14 +1,25 @@
-import 'package:flutter/material.dart';
-import 'player.dart';
+import 'package:trgou/game/model/player.dart';
 
-@immutable
 class Piece {
-  final Player owner;
-  final int position;
+  final int pieceId;
+  final Player player;
+  final int pathIndex;
 
-  const Piece({required this.owner, required this.position});
+  const Piece({
+    required this.pieceId,
+    required this.player,
+    required this.pathIndex,
+  });
 
-  Piece copyWith({int? position}) {
-    return Piece(owner: owner, position: position ?? this.position);
+  Piece copyWith({
+    int? pieceId,
+    Player? player,
+    int? pathIndex,
+  }) {
+    return Piece(
+      pieceId: pieceId ?? this.pieceId,
+      player: player ?? this.player,
+      pathIndex: pathIndex ?? this.pathIndex,
+    );
   }
 }

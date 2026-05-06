@@ -1,4 +1,4 @@
 enum GameMode {
   hotseat,
-  bot
+  aiOpponent,
 }

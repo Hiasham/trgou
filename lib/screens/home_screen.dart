@@ -1,202 +1,420 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:trgou/app_settings/app_settings_provider.dart';
+import 'package:trgou/game/ai/ai_config.dart';
 import 'package:trgou/game/model/game_mode.dart';
-import 'package:trgou/game/persistence/game_state_persistence.dart';
 import 'package:trgou/game/providers/game_controller_provider.dart';
 import 'package:trgou/screens/game_screen.dart';
 
 class HomeScreen extends ConsumerWidget {
   const HomeScreen({super.key});
 
+  void _pushGameAndRefreshContinue(BuildContext context, WidgetRef ref) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const GameScreen()),
+    ).then((_) {
+      if (context.mounted) {
+        ref.invalidate(hasRestorableGameProvider);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final savedGameAsync = ref.watch(savedGameStateProvider);
-    final hasSavedGame = savedGameAsync.valueOrNull != null;
+    final settings = ref.watch(appSettingsProvider);
+    final AsyncValue<bool> canContinue = ref.watch(hasRestorableGameProvider);
+    final bool hasSavedMatch = canContinue.maybeWhen(
+      data: (value) => value,
+      orElse: () => false,
+    );
 
     return Scaffold(
-      body: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: [
-              colorScheme.surface,
-              colorScheme.surfaceContainerLow,
-            ],
+      body: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (settings.debugEnabled)
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8),
+              child: Chip(
+                avatar: Icon(Icons.bug_report_outlined, size: 18),
+                label: Text('Debug layer enabled'),
+              ),
+            ),
+          _HomeCard(
+            icon: Icons.smart_toy,
+            title: 'Against AI',
+            subtitle: 'Pick a default, adaptive, or style-tuned opponent.',
+            onTap: () async {
+              final _AiOpponentChoice? choice =
+                  await _showAiOpponentPickerDialog(context);
+              if (!context.mounted || choice == null) {
+                return;
+              }
+              switch (choice) {
+                case _AiOpponentChoice.defaultAi:
+                  debugPrint('[HomeScreen] Starting AI match (default).');
+                  ref.read(gameStateProvider.notifier).startAiMatch(
+                        seed: settings.configuredSeed,
+                      );
+                case _AiOpponentChoice.bayesian:
+                  debugPrint('[HomeScreen] Starting AI match (bayesian).');
+                  ref.read(gameStateProvider.notifier).startAiMatch(
+                        aiStyleOverride: AIStyleOverride.bayesian,
+                        seed: settings.configuredSeed,
+                      );
+                case _AiOpponentChoice.aggressive:
+                  debugPrint('[HomeScreen] Starting AI match (aggressive).');
+                  ref.read(gameStateProvider.notifier).startAiMatch(
+                        aiStyleOverride: AIStyleOverride.aggressive,
+                        seed: settings.configuredSeed,
+                      );
+                case _AiOpponentChoice.defensive:
+                  debugPrint('[HomeScreen] Starting AI match (defensive).');
+                  ref.read(gameStateProvider.notifier).startAiMatch(
+                        aiStyleOverride: AIStyleOverride.defensive,
+                        seed: settings.configuredSeed,
+                      );
+                case _AiOpponentChoice.progressive:
+                  debugPrint('[HomeScreen] Starting AI match (progressive).');
+                  ref.read(gameStateProvider.notifier).startAiMatch(
+                        aiStyleOverride: AIStyleOverride.progressive,
+                        seed: settings.configuredSeed,
+                      );
+              }
+              _pushGameAndRefreshContinue(context, ref);
+            },
           ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24),
-            child: Column(
-              children: [
-                const SizedBox(height: 48),
-                Text(
-                  'Royal Game of Ur',
-                  style: theme.textTheme.headlineLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: -0.5,
-                    color: colorScheme.onSurface,
+          const SizedBox(height: 5),
+          _HomeCard(
+            icon: Icons.play_arrow,
+            title: 'Hotseat',
+            subtitle: 'Play against another player on the same device.',
+            onTap: () {
+              debugPrint('[HomeScreen] Starting Hotseat match.');
+              ref
+                  .read(gameStateProvider.notifier)
+                  .reset(mode: GameMode.hotseat, seed: settings.configuredSeed);
+              _pushGameAndRefreshContinue(context, ref);
+            },
+          ),
+          const SizedBox(height: 5),
+          _HomeCard(
+            icon: Icons.replay_sharp,
+            title: 'Continue Match',
+            subtitle: hasSavedMatch
+                ? 'Resume your previous match.'
+                : 'No saved match yet.',
+            onTap: hasSavedMatch
+                ? () async {
+                    debugPrint('[HomeScreen] Continuing existing match.');
+                    final bool restored = await ref
+                        .read(gameStateProvider.notifier)
+                        .loadPersistedState();
+                    if (!context.mounted) {
+                      return;
+                    }
+                    if (!restored) {
+                      ref.invalidate(hasRestorableGameProvider);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('No saved match found yet.'),
+                        ),
+                      );
+                      return;
+                    }
+                    _pushGameAndRefreshContinue(context, ref);
+                  }
+                : null,
+          ),
+          const SizedBox(height: 5),
+          _HomeCard(
+            icon: Icons.settings,
+            title: 'Settings',
+            subtitle: _settingsSubtitle(settings),
+            onTap: () async {
+              final _SettingsResult? result = await _showSettingsDialog(
+                context,
+                initialSeed: settings.configuredSeed,
+                initialDebugEnabled: settings.debugEnabled,
+              );
+              if (!context.mounted) {
+                return;
+              }
+              if (result == null) {
+                return;
+              }
+
+              ref.read(appSettingsProvider.notifier).updateSeed(result.seed);
+              ref
+                  .read(appSettingsProvider.notifier)
+                  .setDebugEnabled(result.debugEnabled);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    _settingsSavedMessage(
+                      seed: result.seed,
+                      debugEnabled: result.debugEnabled,
+                    ),
                   ),
-                  textAlign: TextAlign.center,
                 ),
-                const SizedBox(height: 8),
-                const Spacer(),
-                _HomeCard(
-                  title: 'Play vs Bot',
-                  subtitle: 'Challenge the computer',
-                  icon: Icons.smart_toy_rounded,
-                  onTap: () => _navigateToNewGame(context, ref, GameMode.bot),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _settingsSubtitle(AppSettingsState settings) {
+    final String seedText = settings.configuredSeed == null
+        ? 'Seed: auto'
+        : 'Seed: ${settings.configuredSeed}';
+    final String debugText = settings.debugEnabled ? 'Debug: on' : 'Debug: off';
+    return '$seedText, $debugText';
+  }
+
+  String _settingsSavedMessage({
+    required int? seed,
+    required bool debugEnabled,
+  }) {
+    final String seedMessage = seed == null
+        ? 'Seed set to auto-generated'
+        : 'Seed set to $seed';
+    final String debugMessage = debugEnabled ? 'debug on' : 'debug off';
+    return '$seedMessage, $debugMessage.';
+  }
+
+  Future<_AiOpponentChoice?> _showAiOpponentPickerDialog(
+    BuildContext context,
+  ) {
+    return showDialog<_AiOpponentChoice>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text('Choose AI opponent'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.smart_toy_outlined),
+                  title: const Text('Default'),
+                  subtitle: const Text('Standard balanced AI.'),
+                  onTap: () => Navigator.pop(
+                    dialogContext,
+                    _AiOpponentChoice.defaultAi,
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _HomeCard(
-                  title: 'Hotseat',
-                  subtitle: 'Two players, one device',
-                  icon: Icons.people_rounded,
-                  onTap: () => _navigateToNewGame(context, ref, GameMode.hotseat),
+                ListTile(
+                  leading: const Icon(Icons.auto_awesome),
+                  title: const Text('Bayesian'),
+                  subtitle: const Text(
+                    'Adaptive AI that learns from move outcomes.',
+                  ),
+                  onTap: () => Navigator.pop(
+                    dialogContext,
+                    _AiOpponentChoice.bayesian,
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _HomeCard(
-                  title: 'Continue',
-                  subtitle: 'Resume your last game',
-                  icon: Icons.play_arrow_rounded,
-                  enabled: hasSavedGame,
-                  onTap: () => _navigateToContinue(context, ref),
+                const Divider(height: 24),
+                ListTile(
+                  leading: const Icon(Icons.flash_on_outlined),
+                  title: const Text('Aggressive'),
+                  subtitle: const Text('Prioritises pressure and captures.'),
+                  onTap: () => Navigator.pop(
+                    dialogContext,
+                    _AiOpponentChoice.aggressive,
+                  ),
                 ),
-                const SizedBox(height: 16),
-                _HomeCard(
-                  title: 'Rules',
-                  subtitle: 'How to play',
-                  icon: Icons.menu_book_rounded,
-                  enabled: false,
-                  onTap: () {},
+                ListTile(
+                  leading: const Icon(Icons.shield_outlined),
+                  title: const Text('Defensive'),
+                  subtitle: const Text('Prioritises safety and blocking.'),
+                  onTap: () => Navigator.pop(
+                    dialogContext,
+                    _AiOpponentChoice.defensive,
+                  ),
                 ),
-                const Spacer(flex: 2),
+                ListTile(
+                  leading: const Icon(Icons.trending_up),
+                  title: const Text('Progressive'),
+                  subtitle: const Text('Prioritises advancing towards the goal.'),
+                  onTap: () => Navigator.pop(
+                    dialogContext,
+                    _AiOpponentChoice.progressive,
+                  ),
+                ),
               ],
             ),
           ),
-        ),
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
     );
   }
 
-  void _navigateToNewGame(BuildContext context, WidgetRef ref, GameMode mode) {
-    ref.read(gameControllerProvider.notifier).resetBoard();
-    ref.read(gameControllerProvider.notifier).setGameMode(mode);
-    ref.invalidate(savedGameStateProvider);
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => const GameScreen(),
-      ),
-    );
-  }
-
-  void _navigateToContinue(BuildContext context, WidgetRef ref) async {
-    final saved = await loadGameState();
-    if (saved != null && context.mounted) {
-      ref.read(gameControllerProvider.notifier).loadState(saved);
-      Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (context) => const GameScreen(),
-        ),
-      );
+  Future<_SettingsResult?> _showSettingsDialog(
+    BuildContext context, {
+    required int? initialSeed,
+    required bool initialDebugEnabled,
+  }) async {
+    final TextEditingController seedController = TextEditingController();
+    if (initialSeed != null) {
+      seedController.text = initialSeed.toString();
     }
+    bool debugEnabled = initialDebugEnabled;
+
+    return showDialog<_SettingsResult?>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Settings'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: seedController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Seed',
+                      hintText: 'Leave blank to use auto-generated seed',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Enable Debug Layer'),
+                    subtitle: const Text(
+                      'Shows diagnostics across game UI and AI details.',
+                    ),
+                    value: debugEnabled,
+                    onChanged: (bool value) {
+                      setDialogState(() {
+                        debugEnabled = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    final String rawValue = seedController.text.trim();
+                    int? parsedSeed;
+                    if (rawValue.isNotEmpty) {
+                      parsedSeed = int.tryParse(rawValue);
+                      if (parsedSeed == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Seed must be a valid integer.'),
+                          ),
+                        );
+                        return;
+                      }
+                    }
+                    Navigator.of(dialogContext).pop(
+                      _SettingsResult(
+                        seed: parsedSeed,
+                        debugEnabled: debugEnabled,
+                      ),
+                    );
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 }
 
-class _HomeCard extends StatelessWidget {
-  const _HomeCard({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.onTap,
-    this.enabled = true,
-  });
+enum _AiOpponentChoice {
+  defaultAi,
+  bayesian,
+  aggressive,
+  defensive,
+  progressive,
+}
 
+class _SettingsResult {
+  final int? seed;
+  final bool debugEnabled;
+
+  const _SettingsResult({
+    required this.seed,
+    required this.debugEnabled,
+  });
+}
+
+class _HomeCard extends StatelessWidget {
+  final IconData icon;
   final String title;
   final String subtitle;
-  final IconData icon;
-  final VoidCallback onTap;
-  final bool enabled;
+  final VoidCallback? onTap;
+
+  const _HomeCard({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final titleColor = enabled
-        ? colorScheme.onSurface
-        : colorScheme.onSurface.withValues(alpha: 0.5);
-    final subtitleColor = enabled
-        ? colorScheme.onSurfaceVariant
-        : colorScheme.onSurfaceVariant.withValues(alpha: 0.5);
-    final iconColor = enabled
-        ? colorScheme.primary
-        : colorScheme.onSurfaceVariant.withValues(alpha: 0.5);
-    final arrowColor = enabled
-        ? colorScheme.onSurfaceVariant
-        : colorScheme.onSurfaceVariant.withValues(alpha: 0.5);
+    final screenSize = MediaQuery.sizeOf(context);
+    final double screenWidth = screenSize.width;
+    final bool enabled = onTap != null;
+    final Color? iconColor = enabled
+        ? null
+        : Theme.of(context).disabledColor;
+    final TextStyle? titleStyle = enabled
+        ? null
+        : Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: Theme.of(context).disabledColor,
+            );
+    final TextStyle? subtitleStyle = enabled
+        ? null
+        : Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).disabledColor,
+            );
 
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(20),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-          decoration: BoxDecoration(
-            color: colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.6),
-              width: 1,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: colorScheme.shadow.withValues(alpha: 0.06),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 28,
-                color: iconColor,
-              ),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      title,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: titleColor,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: subtitleColor,
-                      ),
-                    ),
-                  ],
+    return Center(
+      child: Card(
+        clipBehavior: Clip.hardEdge,
+        color: enabled ? null : Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+        child: InkWell(
+          onTap: onTap,
+          child: SizedBox(
+            width: screenWidth - 20,
+            height: 100,
+            child: Center(
+              child: ListTile(
+                leading: Icon(icon, size: 40, color: iconColor),
+                title: Text(title, style: titleStyle),
+                subtitle: Text(subtitle, style: subtitleStyle),
+                trailing: Icon(
+                  Icons.chevron_right,
+                  color: iconColor,
                 ),
               ),
-              Icon(
-                Icons.arrow_forward_ios_rounded,
-                size: 16,
-                color: arrowColor,
-              ),
-            ],
+            ),
           ),
         ),
       ),
