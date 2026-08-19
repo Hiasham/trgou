@@ -30,9 +30,9 @@ The game includes several AI configurations:
 
 - **Default AI** - Balanced, uses only value-based reasoning. For each legal move, the AI will compute three heuristic cores and then combine them for a total score, the move with the heighest total score is what the AI will play.
 - **Bayesian AI** - Adapts dynamically to player behaviour using Bayesian learning.
-- **Aggressive AI** — Prioritises captures and pressure. 
-- **Defensive AI** — Prioritises safety and risk minimisation.
-- **Progressive AI** — Prioritises advancing pieces toward completion. 
+- **Aggressive AI** - Prioritises captures and pressure. 
+- **Defensive AI** - Prioritises safety and risk minimisation.
+- **Progressive AI** - Prioritises advancing pieces toward completion. 
 
 The Bayesian AI observes player actions and adjusts its strategic priorities accordingly, allowing it to respond differently to aggressive, defensive, or progress-focused playstyles.
 
